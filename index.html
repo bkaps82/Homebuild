@@ -63,6 +63,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px}
 .num{font:500 13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .num.new{color:var(--accent)}
+.num.pend{color:var(--accent);font-family:var(--body);font-weight:600}
+.who{font-size:12px;color:var(--muted);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wait{font-size:12px;color:var(--muted);white-space:nowrap}
 .num.area{color:var(--accent);font-family:var(--body);font-weight:600;overflow:hidden;text-overflow:ellipsis;max-width:45%}
 .spacer{flex:1}
 .act{appearance:none;border:1px solid var(--line);background:transparent;color:var(--ink);font:600 13px var(--body);padding:5px 11px;border-radius:999px;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center}
@@ -175,7 +178,7 @@ label.fl{font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6
 @media (max-width:700px){.lb-tools .lbtn{padding:6px 10px}.lb-zone{width:28%}}
 @media (max-width:560px){
   .grid,.col{gap:10px}.controls{width:100%}
-  .tabs{display:grid;grid-template-columns:1fr 1fr;gap:2px;border-radius:18px;width:100%}
+  .tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:2px;border-radius:18px;width:100%}
   .tab{padding:6px 9px;font-size:13px;gap:5px}.tab .n{font-size:11px}
   .bar{padding:6px 8px}.act{padding:4px 9px;font-size:12px}.linktile{padding:12px}.linktile .path{font-size:15px}
 }
@@ -197,6 +200,7 @@ label.fl{font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6
         <button class="tab" id="tab-hidden" role="tab" aria-selected="false" data-view="hidden">Hidden <span class="n" id="n-hidden"></span></button>
         <button class="tab" id="tab-check" role="tab" aria-selected="false" data-view="checklist">Checklist <span class="n" id="n-check"></span></button>
         <button class="tab" id="tab-prop" role="tab" aria-selected="false" data-view="property">Property <span class="n" id="n-prop"></span></button>
+        <button class="tab" id="tab-new" role="tab" aria-selected="false" data-view="new" hidden>New <span class="n" id="n-new"></span></button>
       </div>
     </div>
     <div class="meter" aria-hidden="true"><i id="meter" style="width:0"></i></div>
@@ -265,6 +269,7 @@ label.fl{font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6
       <h2 id="sheet-title">Add to the board</h2>
       <button class="act" id="sheet-close" type="button" aria-label="Close">✕</button>
     </div>
+    <p class="hint">New photos and links wait in the New tab until Brendan or Meg adds them to the board.</p>
     <div class="sect">
       <h3>Photos and screenshots</h3>
       <p class="hint">On iPhone this opens a menu for Photo Library, Take Photo, or Choose File. You can pick several at once.</p>
@@ -299,7 +304,7 @@ label.fl{font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6
       <h2 id="signin-title">Sign in to edit</h2>
       <button class="act" id="signin-close" type="button" aria-label="Close">✕</button>
     </div>
-    <p class="hint">Only Brendan and Meg can make changes. Everyone else can look around without signing in.</p>
+    <p class="hint">Brendan and Meg can change anything. Other people with an account can add photos for review. Everyone else can look around without signing in.</p>
     <label class="fl">Email <input type="email" id="si-email" autocomplete="username" required></label>
     <label class="fl">Password <input type="password" id="si-pass" autocomplete="current-password" required></label>
     <div class="row"><button class="primary" id="si-go" type="submit">Sign in</button><span class="msg" id="si-msg"></span></div>
@@ -315,7 +320,9 @@ const NAMES={"bkaps82@gmail.com":"Brendan","megkaps84@gmail.com":"Meg"};
 const $=id=>document.getElementById(id);
 let sb=null, email=null, editor=false, loaded=false;
 let items=new Map(), sections=[], clItems=[];
-let view=({"#hidden":"hidden","#checklist":"checklist","#property":"property"})[location.hash]||"keep";
+let view=({"#hidden":"hidden","#checklist":"checklist","#property":"property","#new":"new"})[location.hash]||"keep";
+const signedIn=()=>!!email&&loaded;
+const who=e=>e?(NAMES[String(e).toLowerCase()]||String(e).split("@")[0]):"";
 let propArea="all", cols=0;
 const grid=$("grid");
 const canEdit=()=>editor&&loaded;
@@ -324,14 +331,15 @@ const nowIso=()=>new Date().toISOString();
 
 /* ---------- data helpers ---------- */
 function ideas(){
-  const all=[...items.values()].filter(i=>i.kind!=="prop");
+  const all=[...items.values()].filter(i=>i.kind!=="prop"&&!i.pending);
   const added=all.filter(i=>i.kind!=="pdf").sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
   const pdf=all.filter(i=>i.kind==="pdf").sort((a,b)=>a.sort-b.sort);
   return [...added,...pdf];
 }
-function props(){return [...items.values()].filter(i=>i.kind==="prop").sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));}
+function pendingList(){return [...items.values()].filter(i=>i.pending).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));}
+function props(){return [...items.values()].filter(i=>i.kind==="prop"&&!i.pending&&!i.hidden).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));}
 function item(id){return items.get(id);}
-function label(it){if(it.kind==="prop")return it.area||"Property";if(it.kind==="pdf")return "#"+String(+it.id).padStart(2,"0");return it.kind==="link"?"Link":"New";}
+function label(it){if(it.pending)return it.kind==="prop"?"Property":it.kind==="link"?"Link":"Idea";if(it.kind==="prop")return it.area||"Property";if(it.kind==="pdf")return "#"+String(+it.id).padStart(2,"0");return it.kind==="link"?"Link":"New";}
 function safeUrl(u){try{const x=new URL(u);return /^https?:$/.test(x.protocol)?x.href:null;}catch(e){return null;}}
 function describeLink(u){
   try{
@@ -341,6 +349,7 @@ function describeLink(u){
   }catch(e){return {src:"Link",path:String(u||"")};}
 }
 function visible(){
+  if(view==="new") return pendingList();
   if(view==="property") return props().filter(it=>propArea==="all"||(it.area||"")===propArea);
   return ideas().filter(it=>view==="keep"?!it.hidden:it.hidden);
 }
@@ -353,9 +362,11 @@ function renderCounts(){
   $("meter").style.width=all.length?(nk/all.length*100)+"%":"0";
   $("n-prop").textContent=loaded?(props().length||""):"";
   $("n-check").textContent=clItems.length?clItems.filter(i=>i.done).length+"/"+clItems.length:"";
-  for(const [t,v] of [["tab-keep","keep"],["tab-hidden","hidden"],["tab-check","checklist"],["tab-prop","property"]]) $(t).setAttribute("aria-selected",view===v);
-  $("add-open").hidden=!canEdit()||view==="checklist"||view==="property";
-  $("present").hidden=view==="checklist"||!loaded;
+  if(view==="new"&&loaded&&!email) view="keep";
+  $("tab-new").hidden=!signedIn(); $("n-new").textContent=pendingList().length||"";
+  for(const [t,v] of [["tab-keep","keep"],["tab-hidden","hidden"],["tab-check","checklist"],["tab-prop","property"],["tab-new","new"]]) $(t).setAttribute("aria-selected",view===v);
+  $("add-open").hidden=!signedIn()||view==="checklist"||view==="property";
+  $("present").hidden=view==="checklist"||!loaded||(view==="new"&&!pendingList().length);
   document.body.classList.toggle("can-edit",canEdit());
 }
 function renderStatus(){
@@ -363,13 +374,14 @@ function renderStatus(){
   if(!loaded){const a=document.createElement("span");a.textContent=loadError?"":"Loading the board…";s.append(a);return;}
   const all=ideas(), nh=all.filter(i=>i.hidden).length, nk=all.length-nh;
   const a=document.createElement("span"), b=document.createElement("b");
-  if(view==="property"){b.textContent=props().length;a.append(b," photos of the property");}
+  if(view==="new"){const n=pendingList().length;b.textContent=n;a.append(b,n===1?" photo waiting for review":" photos waiting for review");}
+  else if(view==="property"){b.textContent=props().length;a.append(b," photos of the property");}
   else if(view==="checklist"){b.textContent=clItems.filter(i=>i.done).length;a.append(b," of "+clItems.length+" checklist items checked off");}
   else if(view==="keep"){b.textContent=nk;a.append(b," of "+all.length+" ideas still in the running");}
   else{b.textContent=nh;a.append(b," hidden. Bring back anything worth another look.");}
   const c=document.createElement("span");
   if(editor){c.append("Signed in as "+(NAMES[email]||email)+". Changes save for everyone. ");}
-  else if(email){c.append("Signed in as "+email+", which can only view. ");}
+  else if(email){c.append("Signed in as "+who(email)+". Photos you add go to New for Brendan or Meg to review. ");}
   else{c.append("View only. ");}
   const btn=document.createElement("button"); btn.className="linkbtn"; btn.type="button";
   btn.textContent=email?"Sign out":"Sign in to edit";
@@ -397,6 +409,16 @@ function card(it){
   const bar=document.createElement("div"); bar.className="bar";
   const num=document.createElement("span"); num.className="num"+(it.kind==="pdf"?"":it.kind==="prop"?" area":" new"); num.textContent=label(it);
   const sp=document.createElement("span"); sp.className="spacer"; bar.append(num,sp);
+  if(it.pending){
+    num.className="num pend";
+    if(it.added_by){const w=document.createElement("span");w.className="who";w.textContent="Added by "+who(it.added_by);sp.append(w);}
+    if(canEdit()){
+      const ok=document.createElement("button");ok.type="button";ok.className="act show";ok.textContent="Add to board";ok.addEventListener("click",()=>review(it.id,true,el));
+      const no=document.createElement("button");no.type="button";no.className="act hide";no.textContent="Reject";no.addEventListener("click",()=>review(it.id,false,el));
+      bar.append(no,ok);
+    }else{const w=document.createElement("span");w.className="wait";w.textContent="Waiting for review";bar.append(w);}
+    el.append(bar); return el;
+  }
   if(canEdit()){
     const pen=document.createElement("button"); pen.type="button"; pen.className="act pen"; pen.textContent="✎";
     pen.title=it.note?"Edit note":"Add note"; pen.setAttribute("aria-label",pen.title); pen.addEventListener("click",()=>openLb(it.id,true)); bar.append(pen);
@@ -423,7 +445,7 @@ function render(){
   grid.replaceChildren(...cs);
   const empty=$("empty"); empty.hidden=list.length>0;
   if(!list.length){
-    empty.innerHTML=view==="property"
+    empty.innerHTML=view==="new"?"<h2>Nothing waiting for review</h2>New photos and links land here first.":view==="property"
       ?(props().length?"<h2>No photos in this area</h2>Pick another area above.":"<h2>No property photos yet</h2>"+(canEdit()?"Add photos of the land, the barn, the driveway, or anything else you want to plan around.":""))
       :view==="keep"?"<h2>Everything is hidden</h2>Open the Hidden tab to bring photos back."
       :"<h2>Nothing hidden yet</h2>";
@@ -458,6 +480,14 @@ async function setHidden(id,h,el){
   if(el) removeCard(el);
   try{await patchItem(id,{hidden:h});}catch(e){return;}
   toast((h?"Hid ":"Brought back ")+label(item(id)),()=>patchItem(id,{hidden:!h}).catch(()=>{}));
+}
+async function review(id,approve,el){
+  const it=item(id); if(!it) return; const kind=it.kind;
+  if(el) removeCard(el);
+  const patch=approve?{pending:false,hidden:false}:{pending:false,hidden:true};
+  try{await patchItem(id,patch);}catch(e){return;}
+  const where=approve?(kind==="prop"?"Added to Property":"Added to the board"):(kind==="prop"?"Rejected":"Moved to Hidden");
+  toast(where,()=>patchItem(id,{pending:true,hidden:false}).catch(()=>{}));
 }
 async function insertItem(row){
   items.set(row.id,{...row}); refresh();
@@ -502,10 +532,10 @@ function syncLb(){
   if(!editing) syncNote(it);
   const u=it.url&&safeUrl(it.url); $("lb-link").hidden=!u; if(u)$("lb-link").href=u;
   const i=lbList.indexOf(lbId);
-  $("lb-num").textContent=label(it)+(it.hidden?" · hidden":"");
+  $("lb-num").textContent=label(it)+(it.pending?" · waiting for review":it.hidden?" · hidden":"");
   $("lb-count").textContent=(i+1)+" / "+lbList.length;
   $("lb-prev").disabled=i<=0; $("lb-next").disabled=i>=lbList.length-1&&!playTimer;
-  const t=$("lb-toggle"); t.hidden=!canEdit()||it.kind==="prop"; t.className="lbtn"+(it.hidden?"":" warn"); t.textContent=it.hidden?"Bring back":"Not for us";
+  const t=$("lb-toggle"); t.hidden=!canEdit()||it.kind==="prop"||it.pending; t.className="lbtn"+(it.hidden?"":" warn"); t.textContent=it.hidden?"Bring back":"Not for us";
   $("lb-fs").hidden=!fsOk; $("lb-fs").textContent=fsEl()?"Exit full screen":"⛶ Full screen";
   $("lb-cap").classList.toggle("on",captions); lb.classList.toggle("nocap",!captions);
   $("lb-bottom").classList.toggle("empty",!it.note&&lb.classList.contains("idle"));
@@ -525,7 +555,7 @@ function stopPlay(){clearInterval(playTimer);playTimer=null;$("lb-prog").classLi
 function togglePlay(){playTimer?stopPlay():startPlay();if(!lb.hidden)syncLb();}
 function wake(){lb.classList.remove("idle");clearTimeout(idleTimer);if(!editing)idleTimer=setTimeout(()=>{if(!editing){lb.classList.add("idle");const it=item(lbId);$("lb-bottom").classList.toggle("empty",!(it&&it.note));}},2600);}
 async function lbToggle(){
-  if(!canEdit()||!lbId) return; const it=item(lbId); if(!it||it.kind==="prop") return;
+  if(!canEdit()||!lbId) return; const it=item(lbId); if(!it||it.kind==="prop"||it.pending) return;
   editing=false; const id=lbId, i=lbList.indexOf(id); lbList.splice(i,1);
   setHidden(id,!it.hidden);
   if(!lbList.length){closeLb();return;} lbId=lbList[Math.min(i,lbList.length-1)]; syncLb();
@@ -598,7 +628,7 @@ async function prepImage(file){
 }
 async function uploadOne(file,folder){
   let p; try{p=await prepImage(file);}catch(e){throw new Error("That file isn't a photo this browser can read. Try a JPEG or PNG.");}
-  const path=folder+"/"+newId("")+".jpg";
+  const path="staging/"+folder+"-"+newId("")+".jpg";
   const {error}=await sb.storage.from("photos").upload(path,p.blob,{contentType:"image/jpeg",upsert:false});
   if(error) throw error;
   return {src:sb.storage.from("photos").getPublicUrl(path).data.publicUrl,w:p.w,h:p.h};
@@ -608,17 +638,17 @@ $("add-open").addEventListener("click",()=>{$("sheet").hidden=false;});
 $("sheet-close").addEventListener("click",()=>{$("sheet").hidden=true;});
 $("sheet").addEventListener("click",e=>{if(e.target===$("sheet"))$("sheet").hidden=true;});
 $("photo-input").addEventListener("change",async e=>{
-  const files=[...e.target.files]; e.target.value=""; if(!files.length||!canEdit()) return;
+  const files=[...e.target.files]; e.target.value=""; if(!files.length||!signedIn()) return;
   const msg=$("photo-msg"), note=$("photo-note").value.trim().slice(0,1000); msg.className="msg";
   let ok=0,fail=0,last=null; $("photo-btn").setAttribute("aria-disabled","true");
   for(let i=0;i<files.length;i++){
     msg.textContent="Uploading "+(i+1)+" of "+files.length+"…";
-    try{const a=await uploadOne(files[i],"ideas");await insertItem({id:newId("a"),kind:"photo",src:a.src,w:a.w,h:a.h,note,hidden:false,area:"",sort:0,created_at:nowIso()});ok++;}
+    try{const a=await uploadOne(files[i],"ideas");await insertItem({id:newId("a"),kind:"photo",src:a.src,w:a.w,h:a.h,note,hidden:false,pending:true,added_by:email,area:"",sort:0,created_at:nowIso()});ok++;}
     catch(err){fail++;last=err;}
   }
   $("photo-btn").setAttribute("aria-disabled","false");
   if(fail){msg.className="msg err";msg.textContent=(ok?ok+" added. ":"")+fail+" didn't upload. "+upErr(last);}
-  else{msg.textContent="";$("photo-note").value="";$("sheet").hidden=true;goKeep();toast(ok===1?"Added 1 photo":"Added "+ok+" photos");}
+  else{msg.textContent="";$("photo-note").value="";$("sheet").hidden=true;goNew();toast(ok===1?"Added 1 photo to New for review":"Added "+ok+" photos to New for review");}
 });
 let shotFile=null;
 $("shot-input").addEventListener("change",e=>{shotFile=e.target.files[0]||null;$("shot-name").textContent=shotFile?shotFile.name:"Optional";});
@@ -627,21 +657,22 @@ $("link-save").addEventListener("click",async()=>{
   const msg=$("link-msg"); msg.className="msg"; const url=cleanUrl($("link-url").value);
   if(!url){msg.className="msg err";msg.textContent="Paste a full link, like https://www.instagram.com/reel/…";return;}
   const btn=$("link-save"); btn.disabled=true;
-  const row={id:newId("a"),kind:"link",url,note:$("link-note").value.trim().slice(0,1000),hidden:false,area:"",sort:0,created_at:nowIso(),src:null,w:null,h:null};
+  const row={id:newId("a"),kind:"link",url,note:$("link-note").value.trim().slice(0,1000),hidden:false,pending:true,added_by:email,area:"",sort:0,created_at:nowIso(),src:null,w:null,h:null};
   try{
     if(shotFile){msg.textContent="Uploading screenshot…";Object.assign(row,await uploadOne(shotFile,"ideas"));}
     msg.textContent="Saving…"; await insertItem(row);
     $("link-url").value="";$("link-note").value="";shotFile=null;$("shot-input").value="";$("shot-name").textContent="Optional";msg.textContent="";
-    $("sheet").hidden=true; goKeep(); toast("Link added");
+    $("sheet").hidden=true; goNew(); toast("Link added to New for review");
   }catch(err){msg.className="msg err";msg.textContent=upErr(err);}
   finally{btn.disabled=false;}
 });
+function goNew(){view="new";try{history.replaceState(null,"","#new");}catch(e){}render();scrollTo(0,0);}
 function goKeep(){if(view!=="keep"){view="keep";try{history.replaceState(null,"",location.pathname);}catch(e){}}render();scrollTo(0,0);}
 
 /* ---------- property ---------- */
 function propAreas(){const m=new Map();props().forEach(it=>{const a=it.area||"";m.set(a,(m.get(a)||0)+1);});return m;}
 function renderPropTools(){
-  $("prop-bar").hidden=!canEdit();
+  $("prop-bar").hidden=!signedIn();
   const areas=propAreas(), named=[...areas.keys()].filter(Boolean).sort();
   $("prop-areas").replaceChildren(...named.map(a=>{const o=document.createElement("option");o.value=a;return o;}));
   if(propArea!=="all"&&!areas.has(propArea)) propArea="all";
@@ -651,18 +682,18 @@ function renderPropTools(){
   chips.replaceChildren(...list);
 }
 $("prop-input").addEventListener("change",async e=>{
-  const files=[...e.target.files]; e.target.value=""; if(!files.length||!canEdit()) return;
+  const files=[...e.target.files]; e.target.value=""; if(!files.length||!signedIn()) return;
   const msg=$("prop-msg"), area=$("prop-area").value.trim().slice(0,60); msg.className="pt-msg";
   let ok=0,fail=0,last=null; $("prop-btn").setAttribute("aria-disabled","true");
   for(let i=0;i<files.length;i++){
     msg.textContent="Uploading "+(i+1)+" of "+files.length+"…";
-    try{const a=await uploadOne(files[i],"property");await insertItem({id:newId("p"),kind:"prop",src:a.src,w:a.w,h:a.h,note:"",hidden:false,area,sort:0,created_at:nowIso()});ok++;}
+    try{const a=await uploadOne(files[i],"property");await insertItem({id:newId("p"),kind:"prop",src:a.src,w:a.w,h:a.h,note:"",hidden:false,pending:true,added_by:email,area,sort:0,created_at:nowIso()});ok++;}
     catch(err){fail++;last=err;}
   }
   $("prop-btn").setAttribute("aria-disabled","false");
   if(fail){msg.className="pt-msg err";msg.textContent=(ok?ok+" added. ":"")+fail+" didn't upload. "+upErr(last);}
-  else{msg.textContent="";toast(ok===1?"Added 1 property photo":"Added "+ok+" property photos");}
-  if(area&&ok) propArea=area; render();
+  else{msg.textContent="";toast(ok===1?"Added 1 property photo to New for review":"Added "+ok+" property photos to New for review");}
+  if(ok){goNew();}else render();
 });
 
 /* ---------- checklist ---------- */
