@@ -175,7 +175,18 @@ label.fl{font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6
 .lb-prog.run{animation:lbprog linear forwards}
 @keyframes lbprog{from{width:0}to{width:100%}}
 @media (max-width:900px),(max-height:500px),(hover:none){.lb-keys{display:none}}
+.lbtn .sm{display:none}
+.lb-title .num{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 @media (max-width:700px){.lb-tools .lbtn{padding:6px 10px}.lb-zone{width:28%}}
+@media (max-width:600px){
+  .lb-top{flex-direction:column;align-items:stretch;gap:8px;padding-bottom:28px}
+  .lb-title{justify-content:space-between}
+  .lb-tools{justify-content:flex-end;gap:6px}
+  .lbtn{font-size:14px;padding:7px 12px}
+  .lbtn .lbl{display:none}.lbtn .sm{display:inline}
+  #lb-fs{display:none}
+  .lb-zone{top:110px}
+}
 @media (max-width:560px){
   .grid,.col{gap:10px}.controls{width:100%}
   .tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:2px;border-radius:18px;width:100%}
@@ -238,8 +249,8 @@ label.fl{font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6
     <div class="lb-title"><span class="num" id="lb-num"></span><span class="lb-count" id="lb-count"></span><span class="lb-keys">← → browse · Space play · F full screen · Esc close</span></div>
     <div class="lb-tools">
       <a class="lbtn" id="lb-link" target="_blank" rel="noopener noreferrer" hidden>Open link ↗</a>
-      <button class="lbtn" id="lb-play" type="button">▶ Slideshow</button>
-      <button class="lbtn" id="lb-cap" type="button">Captions</button>
+      <button class="lbtn" id="lb-play" type="button" aria-label="Slideshow">▶<span class="lbl"> Slideshow</span></button>
+      <button class="lbtn" id="lb-cap" type="button" aria-label="Captions"><span class="lbl">Captions</span><span class="sm">CC</span></button>
       <button class="lbtn" id="lb-fs" type="button">⛶ Full screen</button>
       <button class="lbtn" id="lb-close" type="button" aria-label="Close">✕</button>
     </div>
@@ -250,6 +261,8 @@ label.fl{font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:6
       <div class="lbnote-row ctrl" id="lb-note-view">
         <button class="lbtn" id="lb-note-edit" type="button">Add note</button>
         <button class="lbtn" id="lb-toggle" type="button"></button>
+        <button class="lbtn warn" id="lb-reject" type="button" hidden>Reject</button>
+        <button class="lbtn on" id="lb-approve" type="button" hidden>Add to board</button>
       </div>
       <div id="lb-note-editor" hidden>
         <textarea id="lb-note-input" maxlength="1000" placeholder="What do you like about this? Where would it go?"></textarea>
@@ -535,7 +548,8 @@ function syncLb(){
   $("lb-num").textContent=label(it)+(it.pending?" · waiting for review":it.hidden?" · hidden":"");
   $("lb-count").textContent=(i+1)+" / "+lbList.length;
   $("lb-prev").disabled=i<=0; $("lb-next").disabled=i>=lbList.length-1&&!playTimer;
-  const t=$("lb-toggle"); t.hidden=!canEdit()||it.kind==="prop"||it.pending; t.className="lbtn"+(it.hidden?"":" warn"); t.textContent=it.hidden?"Bring back":"Not for us";
+  const t=$("lb-toggle"); t.hidden=!canEdit()||it.kind==="prop"||it.pending;
+  $("lb-approve").hidden=$("lb-reject").hidden=!(canEdit()&&it.pending); t.className="lbtn"+(it.hidden?"":" warn"); t.textContent=it.hidden?"Bring back":"Not for us";
   $("lb-fs").hidden=!fsOk; $("lb-fs").textContent=fsEl()?"Exit full screen":"⛶ Full screen";
   $("lb-cap").classList.toggle("on",captions); lb.classList.toggle("nocap",!captions);
   $("lb-bottom").classList.toggle("empty",!it.note&&lb.classList.contains("idle"));
@@ -550,8 +564,8 @@ function restartPlay(){
   clearInterval(playTimer); const p=$("lb-prog"); p.classList.remove("run"); void p.offsetWidth; p.style.animationDuration=SLIDE_MS+"ms"; p.classList.add("run");
   playTimer=setInterval(()=>{step(1,true);const q=$("lb-prog");q.classList.remove("run");void q.offsetWidth;q.classList.add("run");},SLIDE_MS);
 }
-function startPlay(){restartPlay();$("lb-play").textContent="❚❚ Pause";$("lb-play").classList.add("on");syncLb();}
-function stopPlay(){clearInterval(playTimer);playTimer=null;$("lb-prog").classList.remove("run");$("lb-play").textContent="▶ Slideshow";$("lb-play").classList.remove("on");}
+function startPlay(){restartPlay();$("lb-play").innerHTML='❚❚<span class="lbl"> Pause</span>';$("lb-play").setAttribute("aria-label","Pause slideshow");$("lb-play").classList.add("on");syncLb();}
+function stopPlay(){clearInterval(playTimer);playTimer=null;$("lb-prog").classList.remove("run");$("lb-play").innerHTML='▶<span class="lbl"> Slideshow</span>';$("lb-play").setAttribute("aria-label","Slideshow");$("lb-play").classList.remove("on");}
 function togglePlay(){playTimer?stopPlay():startPlay();if(!lb.hidden)syncLb();}
 function wake(){lb.classList.remove("idle");clearTimeout(idleTimer);if(!editing)idleTimer=setTimeout(()=>{if(!editing){lb.classList.add("idle");const it=item(lbId);$("lb-bottom").classList.toggle("empty",!(it&&it.note));}},2600);}
 async function lbToggle(){
@@ -564,6 +578,14 @@ $("lb-prev").addEventListener("click",e=>{e.stopPropagation();step(-1);wake();})
 $("lb-next").addEventListener("click",e=>{e.stopPropagation();step(1);wake();});
 $("lb-close").addEventListener("click",closeLb);
 $("lb-toggle").addEventListener("click",lbToggle);
+function lbReview(ok){
+  if(!canEdit()||!lbId) return; const it=item(lbId); if(!it||!it.pending) return;
+  editing=false; const id=lbId, i=lbList.indexOf(id); lbList.splice(i,1);
+  review(id,ok);
+  if(!lbList.length){closeLb();return;} lbId=lbList[Math.min(i,lbList.length-1)]; syncLb();
+}
+$("lb-approve").addEventListener("click",()=>lbReview(true));
+$("lb-reject").addEventListener("click",()=>lbReview(false));
 $("lb-play").addEventListener("click",togglePlay);
 $("lb-cap").addEventListener("click",()=>{captions=!captions;syncLb();});
 $("lb-fs").addEventListener("click",()=>{fsEl()?exitFs():enterFs();});
